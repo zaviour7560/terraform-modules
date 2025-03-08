@@ -1,15 +1,10 @@
-variable "vpc_cidr" {
+  
+variable "cidr_block" {
+  description = "The name of the VPC"
   type = string
 }
-variable "pub_sub_cidr" {
-  type = list(string)
-}
-variable "pvt_sub_cidr" {
-  type = list(string)
-}
-variable "availability_zone" {
-  type = list(string)
-}
-variable "availability_zone" {
-  type = list(string)
+
+variable "instance_tenancy" {
+  description = "This is my instance_tenance"
+  default = "default"
 }
