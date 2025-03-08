@@ -1,12 +1,8 @@
-output "ec2_public_ip" {
-  value = aws_instance.web.public_ip
+terraform {
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "4.31.0"
+    }
+  }
 }
-
-output "rds_endpoint" {
-  value = aws_db_instance.rds.endpoint
-}
-
-output "alb_dns" {
-  value = aws_lb.app_alb.dns_name
-}
-
