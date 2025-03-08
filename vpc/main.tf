@@ -1,129 +1,105 @@
-provider "aws" {
-  region = "us-east-1"  # Change to your region
+resource "aws_vpc" "tf_vpc" {
+  cidr_block           = var.vpc_cidr
+  instance_tenancy     = "default"
+  enable_dns_support   = true
+  enable_dns_hostnames = true
+
+  tags = merge({
+    Name = format("%s-%s-vpc", var.namespace, var.env)
+  }, var.tags)
 }
 
-# VPC Creation
-resource "aws_vpc" "main_vpc" {
-  cidr_block = "10.0.0.0/16"
-}
-
-# Subnets
-resource "aws_subnet" "public_subnet" {
-  vpc_id            = aws_vpc.main_vpc.id
-  cidr_block        = "10.0.1.0/24"
+//Subnets
+#Public Subnet
+resource "aws_subnet" "tf_vpc_pub_sub" {
+  vpc_id                  = aws_vpc.tf_vpc.id
+  count                   = length(var.pub_sub_cidr)
+  cidr_block              = element(var.pub_sub_cidr, count.index) #OR var.pub_sub_cidr[count.index]
+  availability_zone       = element(var.availability_zone, count.index)
   map_public_ip_on_launch = true
-  availability_zone = "us-east-1a"
+
+  tags = merge({
+    Name = format("pub-%s-%s-%s", var.namespace, var.env, element(var.availability_zone, count.index))
+  }, { Connectivity = "public" }, var.tags) #Combining local and global tags
 }
+#OR Name = "${var.vpc_name}.pub.sub-${count.index}"
 
-resource "aws_subnet" "private_subnet" {
-  vpc_id            = aws_vpc.main_vpc.id
-  cidr_block        = "10.0.2.0/24"
-  availability_zone = "us-east-1b"
+#Private Subnet
+resource "aws_subnet" "tf_vpc_pvt_sub" {
+  vpc_id                  = aws_vpc.tf_vpc.id
+  count                   = length(var.pvt_sub_cidr)
+  cidr_block              = element(var.pvt_sub_cidr, count.index) #OR var.pvt_sub_cidr[count.index]
+  availability_zone       = element(var.availability_zone, count.index)
+  map_public_ip_on_launch = false
+
+  tags = merge({
+    Name = format("pvt-%s-%s-%s", var.namespace, var.env, element(var.availability_zone, count.index))
+  }, { Connectivity = "private" }, var.tags)
 }
+#OR Name = "${var.vpc_name}.pvt.sub-${count.index}"
 
-# Internet Gateway for Public Subnet
-resource "aws_internet_gateway" "gw" {
-  vpc_id = aws_vpc.main_vpc.id
-}
-
-# Route Table
-resource "aws_route_table" "public_rt" {
-  vpc_id = aws_vpc.main_vpc.id
-}
-
-resource "aws_route" "default_route" {
-  route_table_id         = aws_route_table.public_rt.id
-  destination_cidr_block = "0.0.0.0/0"
-  gateway_id             = aws_internet_gateway.gw.id
-}
-
-resource "aws_route_table_association" "public_assoc" {
-  subnet_id      = aws_subnet.public_subnet.id
-  route_table_id = aws_route_table.public_rt.id
-}
-
-# Security Group
-resource "aws_security_group" "web_sg" {
-  vpc_id = aws_vpc.main_vpc.id
-
-  ingress {
-    from_port   = 80
-    to_port     = 80
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  ingress {
-    from_port   = 22
-    to_port     = 22
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-}
-
-# Launch an EC2 Instance for Web Server
-resource "aws_instance" "web" {
-  ami           = "ami-0c55b159cbfafe1f0"  # Change as per your region
-  instance_type = "t2.micro"
-  subnet_id     = aws_subnet.public_subnet.id
-  security_groups = [aws_security_group.web_sg.name]
-
+//internet gateway
+resource "aws_internet_gateway" "tf_vpc_ig" {
+  vpc_id = aws_vpc.tf_vpc.id
   tags = {
-    Name = "Web-Server"
+    Name = format("%s-%s-ig", var.namespace, var.env)
   }
 }
 
-# RDS Database (MySQL)
-resource "aws_db_instance" "rds" {
-  allocated_storage    = 20
-  engine              = "mysql"
-  engine_version      = "8.0"
-  instance_class      = "db.t2.micro"
-  identifier          = "mydb"
-  username           = "admin"
-  password           = "admin12345"
-  publicly_accessible = false
-  skip_final_snapshot = true
-  vpc_security_group_ids = [aws_security_group.web_sg.id]
-  db_subnet_group_name   = aws_db_subnet_group.rds_subnet_group.name
-}
-
-# RDS Subnet Group
-resource "aws_db_subnet_group" "rds_subnet_group" {
-  name       = "rds_subnet_group"
-  subnet_ids = [aws_subnet.public_subnet.id, aws_subnet.private_subnet.id]
-}
-
-# Application Load Balancer (ALB)
-resource "aws_lb" "app_alb" {
-  name               = "app-load-balancer"
-  internal           = false
-  load_balancer_type = "application"
-  security_groups    = [aws_security_group.web_sg.id]
-  subnets           = [aws_subnet.public_subnet.id, aws_subnet.private_subnet.id]
-}
-
-resource "aws_lb_target_group" "tg" {
-  name     = "app-tg"
-  port     = 80
-  protocol = "HTTP"
-  vpc_id   = aws_vpc.main_vpc.id
-}
-
-resource "aws_lb_listener" "listener" {
-  load_balancer_arn = aws_lb.app_alb.arn
-  port              = 80
-  protocol          = "HTTP"
-
-  default_action {
-    type             = "forward"
-    target_group_arn = aws_lb_target_group.tg.arn
+//main route table
+resource "aws_default_route_table" "tf_vpc_pub_rt" {
+  default_route_table_id = aws_vpc.tf_vpc.default_route_table_id
+  #vpc_id = aws_vpc.tf_vpc.id            //no need when default rt
+  tags = {
+    Name = format("%s-%s-rt", var.namespace, var.env)
   }
+  route {
+    cidr_block = "0.0.0.0/0"
+    gateway_id = aws_internet_gateway.tf_vpc_ig.id
+  }
+}
+//alternate way for route entry
+# resource "aws_route" "public_internet_gateway" {
+#   route_table_id         = aws_default_route_table.tf_vpc_pub_rt.id
+#   destination_cidr_block = "0.0.0.0/0"
+#   gateway_id             = aws_internet_gateway.my_ig.id
+# }
+
+//public subnet association
+resource "aws_route_table_association" "pub_rt_association" {
+  count          = length(var.pub_sub_cidr)
+  subnet_id      = element(aws_subnet.tf_vpc_pub_sub.*.id, count.index) #OR aws_subnet.tf_vpc_pub_sub[count.index].id
+  route_table_id = aws_default_route_table.tf_vpc_pub_rt.id
+}
+
+//eip for nat gateway
+# resource "aws_eip" "tf_eip" {
+#   vpc = true
+# }
+# resource "aws_nat_gateway" "tf_nat" {
+#   allocation_id = aws_eip.tf_eip.id
+#   # subnet_id = aws_subnet.tf_vpc_pub_sub.id
+#   subnet_id  = aws_subnet.tf_vpc_pub_sub[0].id
+#   depends_on = [aws_internet_gateway.tf_vpc_ig]
+#   tags = {
+#     Name = "tf_vpc_nat"
+#   }
+# }
+
+//secondary rt for nat
+resource "aws_route_table" "tf_vpc_pvt_rt" {
+  vpc_id = aws_vpc.tf_vpc.id
+  tags = {
+    Name = format("%s-%s-pvt-rt", var.namespace, var.env)
+  }
+  # route {
+  #   cidr_block     = "0.0.0.0/0"
+  #   nat_gateway_id = aws_nat_gateway.tf_nat.id
+  # }
+}
+//subnet association
+resource "aws_route_table_association" "pvt_rt_association" {
+  count          = length(var.pub_sub_cidr)
+  subnet_id      = element(aws_subnet.tf_vpc_pvt_sub.*.id, count.index) #OR aws_subnet.tf_vpc_pvt_sub.*.id
+  route_table_id = aws_route_table.tf_vpc_pvt_rt.id
 }
