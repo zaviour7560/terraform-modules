@@ -10,3 +10,6 @@ variable "pvt_sub_cidr" {
 variable "availability_zone" {
   type = list(string)
 }
+variable "availability_zone" {
+  type = list(string)
+}
